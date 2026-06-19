@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+
+<linearGradient id="bg5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f141b"/><stop offset="1" stop-color="#1b2734"/></linearGradient>
+<filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<clipPath id="rc"><rect x="16" y="16" width="480" height="480" rx="112"/></clipPath>
+</defs>
+<g clip-path="url(#rc)">
+<rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg5)"/>
+
+<line x1="256" y1="160" x2="256" y2="118" stroke="#dbeeff" stroke-width="8" stroke-linecap="round"/>
+<circle cx="256" cy="110" r="11" fill="#dbeeff"/>
+<line x1="146" y1="240" x2="146" y2="290" stroke="#dbeeff" stroke-width="8" stroke-linecap="round"/>
+<line x1="366" y1="240" x2="366" y2="290" stroke="#dbeeff" stroke-width="8" stroke-linecap="round"/>
+<rect x="158" y="160" width="196" height="180" rx="46" fill="none" stroke="#dbeeff" stroke-width="9"/>
+<circle cx="222" cy="248" r="14" fill="#dbeeff"/>
+<circle cx="290" cy="248" r="14" fill="#dbeeff"/>
+<line x1="224" y1="300" x2="288" y2="300" stroke="#dbeeff" stroke-width="9" stroke-linecap="round"/><text x="256" y="478" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="56" font-weight="700" letter-spacing="5" fill="#dbeeff" opacity="0.92">jac</text>
+</g>
+</svg>
