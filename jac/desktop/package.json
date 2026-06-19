@@ -1,0 +1,12 @@
+{
+  "name": "jac-desktop",
+  "version": "0.1.0",
+  "description": "jac — a floating 3D robot companion that roams your desktop",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"/>
+<title>jac overlay</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; background:transparent; cursor:default; }
+  canvas { display:block; }
+  #tag { position:fixed; transform:translate(-50%,0); font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    font-size:13px; font-weight:700; color:#2a2e35; text-shadow:0 1px 4px rgba(255,255,255,.6);
+    pointer-events:none; opacity:0; transition:opacity .25s; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div id="tag"></div>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
+
+const api = window.jacAPI || { clickThrough(){}, };  // from preload
+const STATES = { hello:0x37d6ff, ready:0x33ff6a, think:0xffb02e, error:0xff4d4d };
+const ORDER = ['hello','ready','think','error'];
+
+const W=()=>innerWidth, H=()=>innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setClearColor(0x000000, 0);
+renderer.setSize(W(),H());
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.1;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(34, W()/H(), 0.1, 100);
+camera.position.set(0,0,7);
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x404a55,0.8));
+const key=new THREE.DirectionalLight(0xffffff,1.5); key.position.set(-3,5,4);
+key.castShadow=true; key.shadow.mapSize.set(1024,1024); key.shadow.radius=6;
+key.shadow.camera.near=1; key.shadow.camera.far=30; scene.add(key);
+const rim=new THREE.DirectionalLight(0x9fd8ff,0.6); rim.position.set(4,2,-3); scene.add(rim);
+
+// soft contact shadow that follows the robot (so it sits "on" the desktop)
+const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,32),
+  new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.18 }));
+shadow.rotation.x=-Math.PI/2; scene.add(shadow);
+
+const robot=new THREE.Group(); scene.add(robot);
+const matBody=new THREE.MeshStandardMaterial({ color:0x33383f, metalness:0.35, roughness:0.55 });
+const matDark=new THREE.MeshStandardMaterial({ color:0x070a0d, metalness:0.2, roughness:0.45 });
+const body=new THREE.Mesh(new RoundedBoxGeometry(1.05,0.95,0.9,5,0.34), matBody.clone());
+body.position.y=-1.35; body.castShadow=true; robot.add(body);
+const neck=new THREE.Mesh(new THREE.CylinderGeometry(0.27,0.32,0.4,24), matBody.clone());
+neck.position.y=-0.78; neck.castShadow=true; robot.add(neck);
+const head=new THREE.Group(); robot.add(head);
+const headMesh=new THREE.Mesh(new RoundedBoxGeometry(1.75,1.6,1.5,6,0.5), matBody.clone());
+headMesh.castShadow=true; head.add(headMesh);
+const panel=new THREE.Mesh(new RoundedBoxGeometry(1.28,1.06,0.2,4,0.34), matDark.clone());
+panel.position.z=0.7; head.add(panel);
+const eyeMat=new THREE.MeshStandardMaterial({ color:0xffffff, emissive:STATES.hello, emissiveIntensity:1.6, roughness:0.3 });
+const eyeGeo=new RoundedBoxGeometry(0.26,0.42,0.16,3,0.09);
+const eyeL=new THREE.Mesh(eyeGeo,eyeMat); eyeL.position.set(-0.27,0,0.82); head.add(eyeL);
+const eyeR=new THREE.Mesh(eyeGeo,eyeMat); eyeR.position.set( 0.27,0,0.82); head.add(eyeR);
+const ledMat=new THREE.MeshStandardMaterial({ color:0xffffff, emissive:STATES.hello, emissiveIntensity:1.4 });
+const led=new THREE.Mesh(new THREE.SphereGeometry(0.06,16,16), ledMat); led.position.set(0,0.78,0.62); head.add(led);
+
+// scale the whole robot down a bit so it's a small companion
+robot.scale.setScalar(0.62); shadow.scale.setScalar(0.62);
+
+// ---- frustum-based roam bounds (robot can roam most of the screen) ----
+let B={x:2,yT:1,yB:-1};
+function recalcBounds(){ const vH=2*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2)*camera.position.z;
+  const vW=vH*camera.aspect; B={ x:vW*0.40, yT:vH*0.30, yB:-vH*0.34 }; }
+recalcBounds();
+
+// ---- movement brain ----
+const logical=new THREE.Vector3(0,0,0), target=new THREE.Vector3(0,0,0);
+const rand=(a,b)=>a+Math.random()*(b-a);
+let behavior='idle', bTime=0, bDur=2, spinT=0, dragging=false, interactive=false;
+const BEH=[ {k:'wander',w:5},{k:'idle',w:2},{k:'curious',w:2},{k:'spin',w:1},{k:'zoom',w:1} ];
+function pick(){ if(dragging) return; const tot=BEH.reduce((s,b)=>s+b.w,0); let r=Math.random()*tot,p=BEH[0];
+  for(const b of BEH){ r-=b.w; if(r<=0){p=b;break;} } behavior=p.k; bTime=0; spinT=0;
+  if(behavior==='wander'){ target.set(rand(-B.x,B.x),rand(B.yB,B.yT),rand(-1.4,0.2)); bDur=rand(2.6,4.6); }
+  else if(behavior==='idle'){ target.copy(logical); bDur=rand(1.6,3); }
+  else if(behavior==='curious'){ target.set(logical.x,logical.y,logical.z); bDur=rand(2.2,3.4); }
+  else if(behavior==='spin'){ bDur=1.3; }
+  else if(behavior==='zoom'){ target.set(rand(-1,1),rand(-0.3,0.5),1.0); bDur=rand(1.6,2.4); } }
+pick();
+
+const mouseNDC={x:0,y:0}; let mPx=0,mPy=0, mActive=false;
+function screenToWorld(px,py){ const v=new THREE.Vector3((px/W())*2-1, -(py/H())*2+1, 0.5).unproject(camera);
+  const dir=v.sub(camera.position).normalize(); const dist=-camera.position.z/dir.z;
+  return camera.position.clone().add(dir.multiplyScalar(dist)); }
+function robotScreen(){ const v=robot.position.clone().project(camera); return [ (v.x*0.5+0.5)*W(), (-v.y*0.5+0.5)*H() ]; }
+
+addEventListener('pointermove', e=>{
+  mPx=e.clientX; mPy=e.clientY; mActive=true;
+  mouseNDC.x=(e.clientX/W())*2-1; mouseNDC.y=(e.clientY/H())*2-1;
+  const [sx,sy]=robotScreen(); const over=Math.hypot(e.clientX-sx, e.clientY-sy) < 130;
+  if(dragging){ const w=screenToWorld(e.clientX,e.clientY); target.set(w.x,w.y,logical.z); return; }
+  if(over && !interactive){ interactive=true; api.clickThrough(false); }
+  else if(!over && interactive){ interactive=false; api.clickThrough(true); }
+});
+addEventListener('pointerdown', e=>{ const [sx,sy]=robotScreen(); if(Math.hypot(e.clientX-sx,e.clientY-sy)<130){ dragging=true; behavior='idle'; } });
+addEventListener('pointerup', ()=>{ dragging=false; });
+addEventListener('resize', ()=>{ camera.aspect=W()/H(); camera.updateProjectionMatrix(); renderer.setSize(W(),H()); recalcBounds(); });
+
+const tag=document.getElementById('tag');
+function autoColor(t){ const seg=t*4, i=Math.floor(seg)%4, j=(i+1)%4; let f=seg-Math.floor(seg); f=f<0.5?0:(f-0.5)*2;
+  const a=STATES[ORDER[i]],b=STATES[ORDER[j]];
+  const lh=(x,y,k)=>((((x>>16&255)+(((y>>16&255)-(x>>16&255))*k)|0)<<16)|(((x>>8&255)+(((y>>8&255)-(x>>8&255))*k)|0)<<8)|((x&255)+(((y&255)-(x&255))*k)|0));
+  return lh(a,b,f); }
+
+const clock=new THREE.Clock();
+function loop(){
+  requestAnimationFrame(loop);
+  const dt=Math.min(clock.getDelta(),0.05), t=clock.elapsedTime;
+  bTime+=dt; if(bTime>bDur) pick();
+  const k=1-Math.exp(-dt*2.0);
+  logical.x+=(target.x-logical.x)*k; logical.y+=(target.y-logical.y)*k; logical.z+=(target.z-logical.z)*k;
+  const bob=Math.sin(t*2)*0.05;
+  robot.position.set(logical.x, logical.y+bob, logical.z);
+  // contact shadow under it
+  shadow.position.set(logical.x, B.yB-0.2, logical.z);
+  const depth=THREE.MathUtils.mapLinear(logical.z,-1.4,1.0,0.7,1.25);
+  shadow.scale.setScalar(0.62*depth); shadow.material.opacity=0.20*depth;
+
+  let dyaw=(target.x-logical.x)*0.5, dpitch=-(target.y-logical.y)*0.3;
+  const aware = (interactive||behavior==='curious')?0.5:0.18;
+  if(mActive){ dyaw+=mouseNDC.x*aware; dpitch+=-mouseNDC.y*aware*0.7; }
+  if(behavior==='curious'){ dyaw+=Math.sin(t*1.6)*0.5; }
+  head.rotation.y+=(THREE.MathUtils.clamp(dyaw,-0.7,0.7)-head.rotation.y)*Math.min(1,dt*4);
+  head.rotation.x+=(THREE.MathUtils.clamp(dpitch,-0.4,0.4)-head.rotation.x)*Math.min(1,dt*4);
+  head.rotation.z=Math.sin(t*0.6)*0.05;
+  if(behavior==='spin'){ spinT+=dt; robot.rotation.y=(spinT/bDur)*Math.PI*2; }
+  else robot.rotation.y+=(0-robot.rotation.y)*Math.min(1,dt*3);
+
+  const bt=(t*0.12)%1; let blink=1;
+  for(const bc of [0.30,0.78]){ const d=Math.min(Math.abs(bt-bc),Math.abs(bt-bc+1),Math.abs(bt-bc-1)); if(d<0.02) blink=0.12; }
+  eyeL.scale.y=eyeR.scale.y=blink;
+  const pulse=1.25+0.5*(0.5+0.5*Math.sin(t*1.3)); eyeMat.emissiveIntensity=pulse; ledMat.emissiveIntensity=pulse*0.9;
+  const col=autoColor((t*0.05)%1); eyeMat.emissive.setHex(col); ledMat.emissive.setHex(col);
+
+  // hover hint follows the robot
+  if(interactive){ const [sx,sy]=robotScreen(); tag.style.left=sx+'px'; tag.style.top=(sy-95)+'px';
+    tag.style.transform='translate(-50%,0)'; tag.textContent='Salom! 👋'; tag.style.opacity=1; }
+  else tag.style.opacity=0;
+
+  renderer.render(scene,camera);
+}
+window.jacReady=true; loop();
+</script>
+</body>
+</html>
