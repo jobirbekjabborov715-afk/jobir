@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>jac — 3D robot</title>
+<style>
+  :root { --fg:#2a2e35; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+  #app { position:fixed; inset:0; background:radial-gradient(120% 100% at 50% 35%, #eef2f6 0%, #d3dae2 65%, #b3bcc6 100%); }
+  canvas { display:block; }
+  #hud { position:fixed; left:0; right:0; bottom:26px; display:flex; flex-direction:column; align-items:center; gap:14px; pointer-events:none; }
+  #state { display:flex; align-items:center; gap:10px; font-size:22px; font-weight:700; color:var(--fg); }
+  #dot { width:16px; height:16px; border-radius:50%; box-shadow:0 0 14px currentColor; }
+  #btns { display:flex; gap:8px; pointer-events:auto; flex-wrap:wrap; justify-content:center; }
+  #btns button { border:none; border-radius:999px; padding:9px 16px; font-size:14px; font-weight:600;
+    background:rgba(255,255,255,.75); color:#2a2e35; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.12); backdrop-filter:blur(6px); }
+  #btns button.active { background:#2a2e35; color:#fff; }
+  #hint { position:fixed; top:18px; left:0; right:0; text-align:center; color:#5a6573; font-size:13px; }
+  #brand { position:fixed; top:16px; left:18px; font-weight:800; letter-spacing:3px; color:#2a2e35; font-size:20px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="brand">jac</div>
+<div id="hint">Sichqoncha bilan ushlab aylantiring — bu haqiqiy 3D</div>
+<div id="hud">
+  <div id="state"><span id="dot"></span><span id="label">Salom!</span></div>
+  <div id="btns">
+    <button data-s="hello" class="active">Salom</button>
+    <button data-s="ready">Tayyor</button>
+    <button data-s="think">O'ylayapman</button>
+    <button data-s="error">Xato</button>
+    <button data-s="auto">Avto</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from './vendor/OrbitControls.js';
+import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
+
+const STATES = {
+  hello: { c: 0x37d6ff, label: 'Salom!' },
+  ready: { c: 0x33ff6a, label: 'Tayyorman' },
+  think: { c: 0xffb02e, label: "O'ylayapman..." },
+  error: { c: 0xff4d4d, label: 'Xato topildi!' },
+};
+const ORDER = ['hello','ready','think','error'];
+let mode = 'hello';            // a state key, or 'auto'
+const headless = new URLSearchParams(location.search).has('headless');
+
+const app = document.getElementById('app');
+const W = () => app.clientWidth, H = () => app.clientHeight;
+
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(W(), H());
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(34, W()/H(), 0.1, 100);
+camera.position.set(0, 0.35, 6.2);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.enablePan = false;
+controls.minDistance = 4; controls.maxDistance = 9;
+controls.target.set(0, -0.1, 0);
+
+// lights
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404a55, 0.75));
+const key = new THREE.DirectionalLight(0xffffff, 1.5);
+key.position.set(-3, 5, 4); key.castShadow = true;
+key.shadow.mapSize.set(1024,1024); key.shadow.radius = 6;
+key.shadow.camera.near = 1; key.shadow.camera.far = 20;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x9fd8ff, 0.6);
+rim.position.set(4, 2, -3); scene.add(rim);
+
+// ground (shadow only)
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(40,40),
+  new THREE.ShadowMaterial({ opacity:0.22 })
+);
+ground.rotation.x = -Math.PI/2; ground.position.y = -2.0; ground.receiveShadow = true;
+scene.add(ground);
+
+// ---- robot ----
+const robot = new THREE.Group(); scene.add(robot);
+const matBody = new THREE.MeshStandardMaterial({ color:0x33383f, metalness:0.35, roughness:0.55 });
+const matDark = new THREE.MeshStandardMaterial({ color:0x070a0d, metalness:0.2, roughness:0.45 });
+
+// body + neck
+const body = new THREE.Mesh(new RoundedBoxGeometry(1.05,0.95,0.9,5,0.34), matBody.clone());
+body.position.y = -1.35; body.castShadow = true; robot.add(body);
+const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.27,0.32,0.4,24), matBody.clone());
+neck.position.y = -0.78; neck.castShadow = true; robot.add(neck);
+
+// head group (turns independently)
+const head = new THREE.Group(); robot.add(head);
+const headMesh = new THREE.Mesh(new RoundedBoxGeometry(1.75,1.6,1.5,6,0.5), matBody.clone());
+headMesh.castShadow = true; head.add(headMesh);
+const panel = new THREE.Mesh(new RoundedBoxGeometry(1.28,1.06,0.2,4,0.34), matDark.clone());
+panel.position.z = 0.7; head.add(panel);
+
+const eyeMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:STATES.hello.c, emissiveIntensity:1.6, roughness:0.3 });
+const eyeGeo = new RoundedBoxGeometry(0.26,0.42,0.16,3,0.09);
+const eyeL = new THREE.Mesh(eyeGeo, eyeMat); eyeL.position.set(-0.27, 0.0, 0.82); head.add(eyeL);
+const eyeR = new THREE.Mesh(eyeGeo, eyeMat); eyeR.position.set( 0.27, 0.0, 0.82); head.add(eyeR);
+// top LED
+const ledMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:STATES.hello.c, emissiveIntensity:1.4 });
+const led = new THREE.Mesh(new THREE.SphereGeometry(0.06,16,16), ledMat); led.position.set(0,0.78,0.62); head.add(led);
+
+// ---- state / colors ----
+const dotEl = document.getElementById('dot'), labelEl = document.getElementById('label');
+function lerpHex(a,b,f){ const ar=(a>>16)&255,ag=(a>>8)&255,ab=a&255,br=(b>>16)&255,bg=(b>>8)&255,bb=b&255;
+  return ((ar+(br-ar)*f|0)<<16)|((ag+(bg-ag)*f|0)<<8)|(ab+(bb-ab)*f|0); }
+function autoState(t){
+  // smooth cycle through the 4 states across the loop
+  const seg = t*ORDER.length; const i = Math.floor(seg)%ORDER.length; const j=(i+1)%ORDER.length;
+  let f = seg - Math.floor(seg); f = f<0.5?0: (f-0.5)*2;       // hold then blend
+  const c = lerpHex(STATES[ORDER[i]].c, STATES[ORDER[j]].c, f);
+  return { c, label: STATES[ ORDER[ f<0.5?i:j ] ].label };
+}
+
+function applyAnim(t){
+  const ang = t*Math.PI*2;
+  robot.position.y = Math.sin(ang)*0.07;
+  head.rotation.y = Math.sin(ang*0.7)*0.28;
+  head.rotation.z = Math.sin(ang*0.5)*0.07;
+  head.rotation.x = Math.sin(ang*1.1)*0.05;
+  // two blinks per loop
+  let blink = 1;
+  for (const bc of [0.22, 0.68]) { const d = Math.min(Math.abs(t-bc), Math.abs(t-bc+1), Math.abs(t-bc-1)); if (d<0.025) blink = 0.12; }
+  eyeL.scale.y = eyeR.scale.y = blink;
+  const pulse = 1.25 + 0.5*(0.5+0.5*Math.sin(ang*1.3));
+  eyeMat.emissiveIntensity = pulse; ledMat.emissiveIntensity = pulse*0.9;
+  // color
+  let col, label;
+  if (mode === 'auto') { const s = autoState(t); col = s.c; label = s.label; }
+  else { col = STATES[mode].c; label = STATES[mode].label; }
+  eyeMat.emissive.setHex(col); ledMat.emissive.setHex(col);
+  const hexs = '#'+col.toString(16).padStart(6,'0');
+  dotEl.style.background = hexs; dotEl.style.color = hexs; labelEl.textContent = label;
+}
+
+// buttons
+document.querySelectorAll('#btns button').forEach(b=>{
+  b.onclick = ()=>{ mode = b.dataset.s; document.querySelectorAll('#btns button').forEach(x=>x.classList.toggle('active', x===b)); };
+});
+
+addEventListener('resize', ()=>{ camera.aspect=W()/H(); camera.updateProjectionMatrix(); renderer.setSize(W(),H()); });
+
+// headless deterministic frame hook (for offline preview rendering)
+window.renderFrame = (t)=>{ const prev=mode; mode='auto'; applyAnim(t); mode=prev; controls.update(); renderer.render(scene,camera); };
+window.jacReady = true;
+
+const clock = new THREE.Clock();
+function loop(){ requestAnimationFrame(loop); const t=(clock.getElapsedTime()*0.10)%1; applyAnim(t); controls.update(); renderer.render(scene,camera); }
+if (!headless) loop();
+</script>
+</body>
+</html>

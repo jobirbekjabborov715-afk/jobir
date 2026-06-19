@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""jac robot v2 — closer to the 3D-render reference: chunky volume, soft studio
+lighting, ambient occlusion, small pale eyes, little body. Static look first."""
+import os, cairosvg
+
+HERE = os.path.dirname(os.path.abspath(__file__)); PNG = os.path.join(HERE, "png"); SVG = os.path.join(HERE, "svg")
+S = 600
+
+def scene(bg_stops, eye_col, name_fill, tilt=-5):
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewBox="0 0 {S} {S}">
+<defs>
+<radialGradient id="bg" cx="0.5" cy="0.36" r="0.9">{bg_stops}</radialGradient>
+<linearGradient id="head" x1="0.15" y1="0.05" x2="0.85" y2="1"><stop offset="0" stop-color="#5b626b"/><stop offset="0.5" stop-color="#3a4047"/><stop offset="1" stop-color="#202429"/></linearGradient>
+<linearGradient id="body" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#4d535b"/><stop offset="1" stop-color="#1c2025"/></linearGradient>
+<radialGradient id="ao" cx="0.5" cy="0.42" r="0.62"><stop offset="0.55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.40"/></radialGradient>
+<radialGradient id="panel" cx="0.5" cy="0.35" r="0.8"><stop offset="0" stop-color="#1a1f25"/><stop offset="1" stop-color="#04060a"/></radialGradient>
+<linearGradient id="eye" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="{eye_col}"/></linearGradient>
+<radialGradient id="floor" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#000" stop-opacity="0.34"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+<filter id="soft"><feGaussianBlur stdDeviation="10"/></filter>
+<filter id="gl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<clipPath id="hc"><rect x="158" y="96" width="284" height="270" rx="96"/></clipPath>
+</defs>
+<rect width="{S}" height="{S}" fill="url(#bg)"/>
+<!-- ground shadow -->
+<ellipse cx="300" cy="500" rx="170" ry="40" fill="url(#floor)"/>
+<!-- little body -->
+<g transform="rotate({tilt} 300 250)">
+  <ellipse cx="300" cy="470" rx="40" ry="14" fill="#000" opacity="0.25"/>
+  <rect x="222" y="356" width="156" height="118" rx="52" fill="url(#body)"/>
+  <rect x="222" y="356" width="156" height="118" rx="52" fill="url(#ao)"/>
+  <rect x="240" y="360" width="120" height="40" rx="20" fill="#ffffff" opacity="0.08"/>
+  <!-- neck -->
+  <rect x="270" y="330" width="60" height="40" rx="18" fill="#2a2f35"/>
+  <!-- HEAD volume -->
+  <rect x="166" y="104" width="284" height="270" rx="96" fill="#0e1116" opacity="0.5"/>
+  <rect x="158" y="96" width="284" height="270" rx="96" fill="url(#head)"/>
+  <g clip-path="url(#hc)">
+    <ellipse cx="240" cy="150" rx="120" ry="70" fill="#ffffff" opacity="0.16" filter="url(#soft)"/>
+    <rect x="158" y="96" width="284" height="270" rx="96" fill="url(#ao)"/>
+  </g>
+  <path d="M210 110 Q300 96 392 116" fill="none" stroke="#7a828c" stroke-width="3" opacity="0.6" stroke-linecap="round"/>
+  <!-- face panel (recessed) -->
+  <rect x="196" y="150" width="208" height="172" rx="66" fill="#0a0d12"/>
+  <rect x="202" y="156" width="196" height="160" rx="60" fill="url(#panel)"/>
+  <rect x="202" y="156" width="196" height="56" rx="60" fill="#fff" opacity="0.05"/>
+  <!-- small pale eyes, close together -->
+  <rect x="252" y="214" width="40" height="52" rx="15" fill="url(#eye)" filter="url(#gl)"/>
+  <rect x="308" y="214" width="40" height="52" rx="15" fill="url(#eye)" filter="url(#gl)"/>
+  <rect x="258" y="220" width="16" height="20" rx="7" fill="#fff"/>
+  <rect x="314" y="220" width="16" height="20" rx="7" fill="#fff"/>
+  <circle cx="300" cy="124" r="6" fill="{eye_col}" filter="url(#gl)"/>
+</g>
+<text x="300" y="560" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="6" fill="{name_fill}">jac</text>
+</svg>'''
+
+variants = {
+    "studio": ('<stop offset="0" stop-color="#eef2f6"/><stop offset="0.7" stop-color="#d4dbe3"/><stop offset="1" stop-color="#b1bac4"/>', "#9fd8ff", "#2a2e35"),
+    "dark":   ('<stop offset="0" stop-color="#161b24"/><stop offset="1" stop-color="#05070b"/>', "#7ad3ff", "#7ad3ff"),
+}
+for k, (bg, eye, nm) in variants.items():
+    svg = scene(bg, eye, nm)
+    open(os.path.join(SVG, f"robot2-{k}.svg"), "w").write(svg)
+    cairosvg.svg2png(bytestring=svg.encode(), write_to=os.path.join(PNG, f"robot2-{k}.png"), output_width=560, output_height=560)
+    print("wrote robot2-" + k)
